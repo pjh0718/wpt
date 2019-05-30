@@ -20,40 +20,39 @@ let interceptor = (async function() {
 })();
 
 class SmsProvider {
+  constructor() {
+    this.mockedReturnValues = {}
+  }
+
   getNextMessage(timeout) {
-    return this.handler.getNextMessage(timeout);
+    let call = this.mockedReturnValues.getNextMessage.shift();
+    if (!call) {
+      throw new Error("Unexpected call.");
+    }
+    return call(timeout);
   }
-  setHandler(handler) {
-    this.handler = handler;
+
+  setReturnValues(callName, returnValues) {
+    this.mockedReturnValues[callName] = returnValues;
     return this;
   }
-  setBinding(binding) {
-    this.binding = binding;
-    return this;
+}
+
+class MockCall {
+  constructor(call) {
+    this.name = call.name;
+    this.returnValues = [];
   }
-  close() {
-    this.binding.close();
+
+  async andReturnOnce(callback) {
+    this.returnValues.push(callback);
+    let provider = await interceptor;
+    provider.setReturnValues(this.name, this.returnValues);
   }
 }
 
 function getNextMessage(timeout, callback) {
   throw new Error("expected to be overriden by tests");
-}
-
-async function close() {
-  let provider = await interceptor;
-  provider.close();
-}
-
-function expect(call) {
-  return {
-    async andReturn(callback) {
-      let handler = {};
-      handler[call.name] = callback;
-      let provider = await interceptor;
-      provider.setHandler(handler);
-    }
-  }
 }
 
 const Status = {};
