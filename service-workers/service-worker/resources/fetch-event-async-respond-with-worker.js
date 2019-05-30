@@ -4,13 +4,13 @@
 
 // These get reset at the start of a test case.
 let reportResult;
-let resultPromise;
 
 // The test page sends a message to tell us that a new test case is starting.
 // We expect a fetch event after this.
 self.addEventListener('message', (event) => {
-  resultPromise = new Promise((resolve) => {
+  const resultPromise = new Promise((resolve) => {
     reportResult = resolve;
+    event.source.postMessage('messageHandlerInitialized');
   });
 
   // Keep the worker alive until the test case finishes, and report

@@ -7,55 +7,60 @@
 <script>
 // This file has tests that call respondWith() asynchronously.
 
-let frame;
-let worker;
-const script = 'resources/fetch-event-async-respond-with-worker.js';
-const scope = 'resources/simple.html';
-
-// Global setup: this must be the first promise_test.
-promise_test(async (t) => {
-  const registration =
-      await service_worker_unregister_and_register(t, script, scope);
-  worker = registration.installing;
-  await wait_for_state(t, worker, 'activated');
-  frame = await with_iframe(scope);
-}, 'global setup');
-
-// Does one test case. It fetches |url|. The service worker gets a fetch event
-// for |url| and attempts to call respondWith() asynchronously. It reports back
-// to the test whether an exception was thrown.
-async function do_test(url) {
-  // Send a message to tell the worker a new test case is starting.
-  const sawMessage = new Promise(resolve => {
-    navigator.serviceWorker.onmessage = (event) => {
+function wait_for_message() {
+  return new Promise((resolve) => {
+    const handler = (event) => {
+      navigator.serviceWorker.removeEventListener('message', handler);
       resolve(event.data);
     };
-    worker.postMessage('');
+    navigator.serviceWorker.addEventListener('message', handler);
   });
+}
 
-  // Start a fetch.
-  frame.contentWindow.fetch(url);
+async function initialize_message_handler(worker) {
+  const promise = wait_for_message();
+  worker.postMessage('initializeMessageHandler');
+  const response = await promise;
+  assert_equals('messageHandlerInitialized', response);
+}
 
-  // Receive the test result from the service worker.
-  return await sawMessage;
-};
+// Does one test case. The service worker gets a fetch event for |url| and
+// attempts to call respondWith() asynchronously. It reports back to the test
+// whether an exception was thrown.
+function fetch_event_async_respond_with_test(url, f, name) {
+  const script = 'resources/fetch-event-async-respond-with-worker.js';
+  const scope = 'resources/simple.html';
 
-promise_test(async (t) => {
-  const result = await do_test('respondWith-in-task');
+  promise_test(async (t) => {
+    // Setup client.
+    const registration =
+        await service_worker_unregister_and_register(t, script, scope);
+    const worker = registration.installing;
+    await wait_for_state(t, worker, 'activated');
+    const frame = await with_iframe(scope);
+    t.add_cleanup(() => {
+      frame.remove();
+      return registration.unregister();
+    });
+
+    // Setup worker.
+    await initialize_message_handler(worker);
+
+    // Register message handler before starting the fetch
+    // to ensure we don't miss the response.
+    const result = wait_for_message(worker);
+    frame.contentWindow.fetch(url);
+    return f(await result);
+  }, name);
+}
+
+fetch_event_async_respond_with_test('respondWith-in-task', (result) => {
   assert_true(result.didThrow, 'should throw');
   assert_equals(result.error, 'InvalidStateError');
 }, 'respondWith in a task throws InvalidStateError');
 
-promise_test(async (t) => {
-  const result = await do_test('respondWith-in-microtask');
-  assert_equals(result.didThrow, false, 'should not throw');
+fetch_event_async_respond_with_test('respondWith-in-microtask', (result) => {
+  assert_false(result.didThrow, 'should not throw');
 }, 'respondWith in a microtask does not throw');
-
-// Global cleanup: the final promise_test.
-promise_test(async (t) => {
-  if (frame)
-    frame.remove();
-  await service_worker_unregister(t, scope);
-}, 'global cleanup');
 </script>
 </html>
